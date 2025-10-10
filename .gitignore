@@ -1,0 +1,8 @@
+bin/
+obj/
+appsettings.Development.json
+*.user
+*.vs/
+.vscode/
+.DS_Store
+appsettings.Development.json
