@@ -1,43 +1,90 @@
 using Microsoft.AspNetCore.Mvc;
-using Shared.Contracts.DTOs;
-using Shared.Contracts.Events;
+using ImageService.Models;
 using ImageService.Services;
 
-[ApiController]
-[Route("api/images")]
-public class ImageController : ControllerBase
+namespace ImageService.Controllers
 {
-    private readonly CloudinaryService _cloudinary;
-    private readonly RabbitMQService _rabbit;
-
-    public ImageController(CloudinaryService cloudinary, RabbitMQService rabbit)
+    [ApiController]
+    [Route("api/images")]
+    public class ImagesController : ControllerBase
     {
-        _cloudinary = cloudinary;
-        _rabbit = rabbit;
-    }
+        private readonly CloudinaryService _cloudinary;
+        private readonly MongoService _mongo;
+        private readonly RabbitMQService _rabbit;
 
-    [HttpPost("upload")]
-    public async Task<IActionResult> UploadImage([FromForm] IFormFile file)
-    {
-        var url = await _cloudinary.UploadImageAsync(file);
+        public ImagesController(CloudinaryService cloudinary, MongoService mongo, RabbitMQService rabbit)
+        {
+            _cloudinary = cloudinary;
+            _mongo = mongo;
+            _rabbit = rabbit;
+        }
 
-        var image = new ImageDto { Id = Guid.NewGuid().ToString(), Url = url };
-        _rabbit.Publish(new ImageUploadedEvent { ImageId = image.Id, Url = image.Url });
+        [HttpPost("upload")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadImage([FromForm] FileUploadRequest request)
+        {
+            if (request.File == null || request.File.Length == 0)
+                return BadRequest("No file uploaded.");
 
-        return Ok(image);
-    }
+            // Validar tipo de archivo
+            var allowedTypes = new[] { "image/jpeg", "image/jpg", "image/png", "image/gif" };
+            if (!allowedTypes.Contains(request.File.ContentType.ToLower()))
+                return BadRequest("Invalid file type. Only JPEG, PNG, and GIF are allowed.");
 
-    [HttpGet("{id}")]
-    public IActionResult GetImage(string id)
-    {
-        // Aquí deberías recuperar la imagen de la base de datos o almacenamiento.
-        return Ok(new { Id = id, Url = "https://example.com/image.png" });
-    }
+            try
+            {
+                using var stream = request.File.OpenReadStream();
+                var url = await _cloudinary.UploadImageAsync(stream, request.File.FileName);
 
-    [HttpDelete("{id}")]
-    public IActionResult DeleteImage(string id)
-    {
-        // Elimina la imagen.
-        return NoContent();
+                var image = new Image
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Url = url,
+                    UserId = "test-user", // TODO: Get from authentication
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                await _mongo.CreateImageAsync(image);
+                await _rabbit.PublishAsync(new { ImageId = image.Id, Url = image.Url });
+
+                return Ok(image);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error uploading image: {ex.Message}");
+            }
+        }
+
+        [HttpGet("{id}")]
+        public async Task<IActionResult> GetImage(string id)
+        {
+            var image = await _mongo.GetImageByIdAsync(id);
+            if (image == null)
+                return NotFound();
+
+            return Ok(image);
+        }
+
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteImage(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+                return BadRequest("Image ID is required.");
+
+            try
+            {
+                // Verificar si la imagen existe antes de eliminar
+                var existingImage = await _mongo.GetImageByIdAsync(id);
+                if (existingImage == null)
+                    return NotFound("Image not found.");
+
+                await _mongo.DeleteImageAsync(id);
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Error deleting image: {ex.Message}");
+            }
+        }
     }
 }
