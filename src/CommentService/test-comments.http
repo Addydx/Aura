@@ -1,0 +1,18 @@
+### Crear un comentario y ver el evento en RabbitMQ
+POST http://localhost:5293/api/comments
+Content-Type: application/json
+
+{
+  "imageId": "383e8d66-3856-457b-b56f-996dbfcfd912",
+  "userId": "user123",
+  "content": "¡Qué foto tan increíble! Me encanta."
+}
+
+### Obtener comentarios por imagen
+GET http://localhost:5293/api/comments/image/383e8d66-3856-457b-b56f-996dbfcfd912
+
+### Obtener comentario por ID
+GET http://localhost:5293/api/comments/{{commentId}}
+
+### Eliminar comentario
+DELETE http://localhost:5293/api/comments/{{commentId}}
