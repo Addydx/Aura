@@ -1,41 +1,47 @@
+using WebsocketService.Hubs;
+using WebsocketService.Services;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+// Add services to the container
+builder.Services.AddControllers();
+
+// Configurar SignalR
+builder.Services.AddSignalR(options =>
+{
+    options.EnableDetailedErrors = true; // Solo para desarrollo
+});
+
+// Registrar servicios personalizados
+builder.Services.AddSingleton<ConnectionManager>();
+builder.Services.AddHostedService<RabbitMQNotificationService>();
+
+// Configurar CORS para SignalR
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.WithOrigins("http://localhost:3000", "http://localhost:5173") // Puertos comunes de React/Vue
+               .AllowAnyMethod()
+               .AllowAnyHeader()
+               .AllowCredentials(); // Importante para SignalR
+    });
+});
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
-
 app.UseHttpsRedirection();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+// Habilitar CORS
+app.UseCors();
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+// Mapear controladores
+app.MapControllers();
+
+// Mapear el Hub de SignalR
+app.MapHub<NotificationHub>("/notificationHub");
+
+// Endpoint de prueba para verificar que el servicio está funcionando
+app.MapGet("/", () => "WebSocket Service is running! 🚀\nSignalR Hub available at: /notificationHub");
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

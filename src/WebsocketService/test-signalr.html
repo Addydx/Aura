@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Aura WebSocket Test</title>
+    <script src="https://unpkg.com/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .section { border: 1px solid #ccc; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .messages { height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background: #f9f9f9; }
+        button { padding: 10px 15px; margin: 5px; }
+        input { padding: 5px; margin: 5px; }
+        .connected { color: green; }
+        .disconnected { color: red; }
+        .message { margin: 5px 0; padding: 5px; background: white; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Aura WebSocket Service Test</h1>
+        
+        <div class="section">
+            <h3>Conexión</h3>
+            <p>Estado: <span id="connectionStatus" class="disconnected">Desconectado</span></p>
+            <button onclick="connect()">Conectar</button>
+            <button onclick="disconnect()">Desconectar</button>
+        </div>
+
+        <div class="section">
+            <h3>Grupos</h3>
+            <input type="text" id="userId" placeholder="User ID (ej: user123)" value="user123">
+            <button onclick="registerUser()">Registrar Usuario</button>
+            <br>
+            <input type="text" id="imageId" placeholder="Image ID (ej: img123)" value="383e8d66-3856-457b-b56f-996dbfcfd912">
+            <button onclick="joinImageGroup()">Unirse a Grupo Imagen</button>
+            <button onclick="leaveImageGroup()">Salir de Grupo Imagen</button>
+        </div>
+
+        <div class="section">
+            <h3>Mensajes de Prueba</h3>
+            <input type="text" id="testMessage" placeholder="Mensaje de prueba" value="¡Hola desde el cliente!">
+            <button onclick="sendTestMessage()">Enviar Mensaje</button>
+        </div>
+
+        <div class="section">
+            <h3>📨 Mensajes Recibidos</h3>
+            <div id="messages" class="messages"></div>
+            <button onclick="clearMessages()">Limpiar</button>
+        </div>
+    </div>
+
+    <script>
+        let connection;
+
+        async function connect() {
+            connection = new signalR.HubConnectionBuilder()
+                .withUrl("http://localhost:5250/notificationHub")
+                .build();
+
+            // Configurar event listeners
+            connection.on("UserConnected", function (connectionId) {
+                addMessage(`👋 Usuario conectado: ${connectionId}`, 'info');
+            });
+
+            connection.on("UserDisconnected", function (connectionId) {
+                addMessage(`👋 Usuario desconectado: ${connectionId}`, 'info');
+            });
+
+            connection.on("TestMessage", function (data) {
+                addMessage(`🧪 Test: ${JSON.stringify(data)}`, 'test');
+            });
+
+            connection.on("ImageUploaded", function (data) {
+                addMessage(`📸 Imagen subida: ${JSON.stringify(data)}`, 'image');
+            });
+
+            connection.on("CommentAdded", function (data) {
+                addMessage(`💬 Comentario: ${JSON.stringify(data)}`, 'comment');
+            });
+
+            try {
+                await connection.start();
+                document.getElementById("connectionStatus").textContent = "Conectado";
+                document.getElementById("connectionStatus").className = "connected";
+                addMessage("✅ Conectado al WebSocket!", 'success');
+            } catch (err) {
+                addMessage(`❌ Error de conexión: ${err}`, 'error');
+            }
+        }
+
+        async function disconnect() {
+            if (connection) {
+                await connection.stop();
+                document.getElementById("connectionStatus").textContent = "Desconectado";
+                document.getElementById("connectionStatus").className = "disconnected";
+                addMessage("🔌 Desconectado del WebSocket", 'info');
+            }
+        }
+
+        async function registerUser() {
+            const userId = document.getElementById("userId").value;
+            if (connection && userId) {
+                try {
+                    await connection.invoke("RegisterUser", userId);
+                    addMessage(`👤 Usuario registrado: ${userId}`, 'success');
+                } catch (err) {
+                    addMessage(`❌ Error registrando usuario: ${err}`, 'error');
+                }
+            }
+        }
+
+        async function joinImageGroup() {
+            const imageId = document.getElementById("imageId").value;
+            if (connection && imageId) {
+                try {
+                    await connection.invoke("JoinImageGroup", imageId);
+                    addMessage(`🖼️ Unido al grupo imagen: ${imageId}`, 'success');
+                } catch (err) {
+                    addMessage(`❌ Error uniéndose al grupo: ${err}`, 'error');
+                }
+            }
+        }
+
+        async function leaveImageGroup() {
+            const imageId = document.getElementById("imageId").value;
+            if (connection && imageId) {
+                try {
+                    await connection.invoke("LeaveImageGroup", imageId);
+                    addMessage(`🚪 Salido del grupo imagen: ${imageId}`, 'info');
+                } catch (err) {
+                    addMessage(`❌ Error saliendo del grupo: ${err}`, 'error');
+                }
+            }
+        }
+
+        async function sendTestMessage() {
+            const message = document.getElementById("testMessage").value;
+            if (connection && message) {
+                try {
+                    await connection.invoke("SendTestMessage", message);
+                    addMessage(`📤 Mensaje enviado: ${message}`, 'success');
+                } catch (err) {
+                    addMessage(`❌ Error enviando mensaje: ${err}`, 'error');
+                }
+            }
+        }
+
+        function addMessage(message, type) {
+            const messages = document.getElementById("messages");
+            const messageDiv = document.createElement("div");
+            messageDiv.className = `message ${type}`;
+            messageDiv.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${message}`;
+            messages.appendChild(messageDiv);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function clearMessages() {
+            document.getElementById("messages").innerHTML = "";
+        }
+
+        // Auto-conectar al cargar la página
+        window.onload = function() {
+            addMessage("🌟 Cliente WebSocket cargado. Haz clic en 'Conectar' para empezar.", 'info');
+        };
+    </script>
+</body>
+</html>
