@@ -38,14 +38,10 @@ app.UseCors();
 // Mapear controladores
 app.MapControllers();
 
-// Mapear los Hubs de SignalR
+// Mapear el Hub de SignalR
 app.MapHub<NotificationHub>("/notificationHub");
-app.MapHub<CommentHub>("/commentHub");
 
 // Endpoint de prueba para verificar que el servicio está funcionando
-app.MapGet("/", () => "WebSocket Service is running! 🚀\n" +
-                      "SignalR Hubs:\n" +
-                      "  - /notificationHub (Notificaciones generales)\n" +
-                      "  - /commentHub (Comentarios en tiempo real)");
+app.MapGet("/", () => "WebSocket Service is running! 🚀\nSignalR Hub available at: /notificationHub");
 
 app.Run();
