@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Aura CommentHub Test</title>
+    <script src="https://unpkg.com/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
+        .section { border: 1px solid #e0e0e0; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .comment-box { height: 400px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; background: #fafafa; }
+        .comment { margin: 10px 0; padding: 10px; background: white; border-left: 3px solid #2196F3; border-radius: 3px; }
+        .comment.typing { border-left-color: #FF9800; opacity: 0.7; font-style: italic; }
+        button { padding: 10px 15px; margin: 5px; background: #2196F3; color: white; border: none; cursor: pointer; border-radius: 5px; }
+        button:hover { background: #1976D2; }
+        button.danger { background: #f44336; }
+        button.danger:hover { background: #d32f2f; }
+        input, textarea { padding: 8px; margin: 5px; border: 1px solid #ddd; border-radius: 3px; }
+        textarea { width: 90%; min-height: 80px; }
+        .connected { color: #4CAF50; font-weight: bold; }
+        .disconnected { color: #f44336; font-weight: bold; }
+        .stats { display: flex; gap: 20px; padding: 10px; background: #e3f2fd; border-radius: 5px; }
+        .stat-item { flex: 1; text-align: center; }
+        .stat-value { font-size: 24px; font-weight: bold; color: #1976D2; }
+        .typing-indicator { padding: 5px; background: #fff3cd; border-radius: 3px; margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>💬 Aura CommentHub - Prueba en tiempo real</h1>
+        
+        <div class="section">
+            <h3>📡 Conexión</h3>
+            <p>Estado: <span id="connectionStatus" class="disconnected">Desconectado</span></p>
+            <button onclick="connect()">Conectar</button>
+            <button onclick="disconnect()" class="danger">Desconectar</button>
+        </div>
+
+        <div class="section">
+            <h3>👤 Configuración de Usuario</h3>
+            <input type="text" id="userId" placeholder="User ID" value="user_123">
+            <input type="text" id="username" placeholder="Username" value="Alex">
+            <input type="text" id="imageId" placeholder="Image ID" value="383e8d66-3856-457b-b56f-996dbfcfd912">
+            <button onclick="subscribeToImage()">📌 Suscribirse a Imagen</button>
+            <button onclick="unsubscribeFromImage()">🚪 Desuscribirse</button>
+        </div>
+
+        <div class="section stats">
+            <div class="stat-item">
+                <div class="stat-value" id="viewersCount">0</div>
+                <div>Usuarios viendo</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="commentsCount">0</div>
+                <div>Comentarios</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>✍️ Escribir Comentario</h3>
+            <textarea id="commentText" placeholder="Escribe tu comentario aquí..."></textarea>
+            <br>
+            <button onclick="simulateTyping()">⌨️ Simular escribiendo</button>
+            <button onclick="stopTyping()">⏸️ Dejar de escribir</button>
+            <button onclick="postComment()">📤 Publicar Comentario</button>
+        </div>
+
+        <div class="section">
+            <h3>💬 Comentarios en Tiempo Real</h3>
+            <div id="typingIndicators"></div>
+            <div id="comments" class="comment-box"></div>
+        </div>
+
+        <div class="section">
+            <h3>🧪 Acciones de Prueba</h3>
+            <button onclick="reactToComment()">❤️ Reaccionar</button>
+            <button onclick="getViewersCount()">👥 Ver usuarios conectados</button>
+        </div>
+    </div>
+
+    <script>
+        let connection;
+        let commentsCount = 0;
+        let typingUsers = new Map();
+
+        async function connect() {
+            connection = new signalR.HubConnectionBuilder()
+                .withUrl("http://localhost:5250/commentHub")
+                .withAutomaticReconnect()
+                .build();
+
+            // Event: Conectado
+            connection.on("Connected", function (data) {
+                addLog(`✅ ${data.Message}`, 'success');
+                document.getElementById("connectionStatus").textContent = "Conectado";
+                document.getElementById("connectionStatus").className = "connected";
+            });
+
+            // Event: Suscrito a imagen
+            connection.on("SubscribedToImage", function (data) {
+                addLog(`📌 Suscrito a imagen: ${data.ImageId}`, 'info');
+                document.getElementById("viewersCount").textContent = data.ViewersCount;
+            });
+
+            // Event: Desuscrito de imagen
+            connection.on("UnsubscribedFromImage", function (data) {
+                addLog(`🚪 Desuscrito de imagen: ${data.ImageId}`, 'info');
+            });
+
+            // Event: Nuevo comentario
+            connection.on("NewComment", function (data) {
+                addComment(data);
+                commentsCount++;
+                document.getElementById("commentsCount").textContent = commentsCount;
+            });
+
+            // Event: Usuario escribiendo
+            connection.on("UserTyping", function (data) {
+                showTypingIndicator(data.UserId, data.Username);
+            });
+
+            // Event: Usuario dejó de escribir
+            connection.on("UserStoppedTyping", function (data) {
+                hideTypingIndicator(data.UserId);
+            });
+
+            // Event: Conteo de viewers
+            connection.on("ViewersCount", function (data) {
+                document.getElementById("viewersCount").textContent = data.Count;
+            });
+
+            // Event: Reacción a comentario
+            connection.on("CommentReaction", function (data) {
+                addLog(`❤️ ${data.UserId} reaccionó con ${data.ReactionType}`, 'info');
+            });
+
+            // Event: Comentario eliminado
+            connection.on("CommentDeleted", function (data) {
+                addLog(`🗑️ Comentario ${data.CommentId} eliminado`, 'warning');
+            });
+
+            // Event: Comentario editado
+            connection.on("CommentEdited", function (data) {
+                addLog(`✏️ Comentario ${data.CommentId} editado`, 'info');
+            });
+
+            try {
+                await connection.start();
+            } catch (err) {
+                addLog(`❌ Error de conexión: ${err}`, 'error');
+            }
+        }
+
+        async function disconnect() {
+            if (connection) {
+                await connection.stop();
+                document.getElementById("connectionStatus").textContent = "Desconectado";
+                document.getElementById("connectionStatus").className = "disconnected";
+                addLog("🔌 Desconectado del CommentHub", 'info');
+            }
+        }
+
+        async function subscribeToImage() {
+            const imageId = document.getElementById("imageId").value;
+            if (connection && imageId) {
+                try {
+                    await connection.invoke("SubscribeToImage", imageId);
+                } catch (err) {
+                    addLog(`❌ Error: ${err}`, 'error');
+                }
+            }
+        }
+
+        async function unsubscribeFromImage() {
+            const imageId = document.getElementById("imageId").value;
+            if (connection && imageId) {
+                try {
+                    await connection.invoke("UnsubscribeFromImage", imageId);
+                } catch (err) {
+                    addLog(`❌ Error: ${err}`, 'error');
+                }
+            }
+        }
+
+        async function simulateTyping() {
+            const imageId = document.getElementById("imageId").value;
+            const userId = document.getElementById("userId").value;
+            const username = document.getElementById("username").value;
+            
+            if (connection && imageId && userId && username) {
+                try {
+                    await connection.invoke("UserTyping", imageId, userId, username);
+                } catch (err) {
+                    addLog(`❌ Error: ${err}`, 'error');
+                }
+            }
+        }
+
+        async function stopTyping() {
+            const imageId = document.getElementById("imageId").value;
+            const userId = document.getElementById("userId").value;
+            
+            if (connection && imageId && userId) {
+                try {
+                    await connection.invoke("UserStoppedTyping", imageId, userId);
+                } catch (err) {
+                    addLog(`❌ Error: ${err}`, 'error');
+                }
+            }
+        }
+
+        async function postComment() {
+            const commentText = document.getElementById("commentText").value;
+            const imageId = document.getElementById("imageId").value;
+            const userId = document.getElementById("userId").value;
+            const username = document.getElementById("username").value;
+
+            if (commentText.trim()) {
+                // Simular crear comentario (normalmente esto sería una llamada a tu API REST)
+                addComment({
+                    CommentId: Date.now().toString(),
+                    ImageId: imageId,
+                    UserId: userId,
+                    Username: username,
+                    Content: commentText,
+                    CreatedAt: new Date().toISOString()
+                });
+                
+                document.getElementById("commentText").value = "";
+                commentsCount++;
+                document.getElementById("commentsCount").textContent = commentsCount;
+            }
+        }
+
+        async function reactToComment() {
+            const imageId = document.getElementById("imageId").value;
+            const userId = document.getElementById("userId").value;
+            const commentId = "latest_comment_id";
+            
+            if (connection) {
+                try {
+                    await connection.invoke("ReactToComment", imageId, commentId, userId, "like");
+                } catch (err) {
+                    addLog(`❌ Error: ${err}`, 'error');
+                }
+            }
+        }
+
+        async function getViewersCount() {
+            const imageId = document.getElementById("imageId").value;
+            if (connection && imageId) {
+                try {
+                    await connection.invoke("GetViewersCount", imageId);
+                } catch (err) {
+                    addLog(`❌ Error: ${err}`, 'error');
+                }
+            }
+        }
+
+        function addComment(data) {
+            const comments = document.getElementById("comments");
+            const commentDiv = document.createElement("div");
+            commentDiv.className = "comment";
+            commentDiv.innerHTML = `
+                <strong>${data.Username || data.UserId}</strong>
+                <small style="color: #666;">${new Date(data.CreatedAt).toLocaleString()}</small>
+                <p>${data.Content}</p>
+            `;
+            comments.appendChild(commentDiv);
+            comments.scrollTop = comments.scrollHeight;
+        }
+
+        function showTypingIndicator(userId, username) {
+            typingUsers.set(userId, username);
+            updateTypingIndicators();
+        }
+
+        function hideTypingIndicator(userId) {
+            typingUsers.delete(userId);
+            updateTypingIndicators();
+        }
+
+        function updateTypingIndicators() {
+            const indicators = document.getElementById("typingIndicators");
+            if (typingUsers.size > 0) {
+                const users = Array.from(typingUsers.values()).join(", ");
+                indicators.innerHTML = `<div class="typing-indicator">⌨️ ${users} está escribiendo...</div>`;
+            } else {
+                indicators.innerHTML = "";
+            }
+        }
+
+        function addLog(message, type) {
+            console.log(`[${type}] ${message}`);
+        }
+
+        // Auto-conectar al cargar
+        window.onload = function() {
+            console.log("🌟 Cliente CommentHub cargado");
+        };
+    </script>
+</body>
+</html>

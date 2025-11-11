@@ -12,18 +12,21 @@ namespace WebsocketService.Services
     {
         private readonly ILogger<RabbitMQNotificationService> _logger;
         private readonly IConfiguration _config;
-        private readonly IHubContext<NotificationHub> _hubContext;
+        private readonly IHubContext<NotificationHub> _notificationHub;
+        private readonly IHubContext<CommentHub> _commentHub;
         private IConnection? _connection;
         private IChannel? _channel;
 
         public RabbitMQNotificationService(
             ILogger<RabbitMQNotificationService> logger, 
             IConfiguration config,
-            IHubContext<NotificationHub> hubContext)
+            IHubContext<NotificationHub> notificationHub,
+            IHubContext<CommentHub> commentHub)
         {
             _logger = logger;
             _config = config;
-            _hubContext = hubContext;
+            _notificationHub = notificationHub;
+            _commentHub = commentHub;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -75,8 +78,8 @@ namespace WebsocketService.Services
                     var imageEvent = JsonSerializer.Deserialize<ImageUploaderEvent>(message);
                     if (imageEvent != null)
                     {
-                        // Notificar a todos los usuarios conectados
-                        await _hubContext.Clients.All.SendAsync("ImageUploaded", new
+                        // Notificar a todos los usuarios conectados a través del NotificationHub
+                        await _notificationHub.Clients.All.SendAsync("ImageUploaded", new
                         {
                             imageEvent.ImageId,
                             imageEvent.Url,
@@ -121,8 +124,8 @@ namespace WebsocketService.Services
                     var commentEvent = JsonSerializer.Deserialize<CommentCreatedEvent>(message);
                     if (commentEvent != null)
                     {
-                        // Notificar al grupo específico de la imagen
-                        await _hubContext.Clients.Group($"image_{commentEvent.ImageId}")
+                        // Notificar a través del NotificationHub (grupo general de la imagen)
+                        await _notificationHub.Clients.Group($"image_{commentEvent.ImageId}")
                             .SendAsync("CommentAdded", new
                             {
                                 commentEvent.CommentId,
@@ -133,8 +136,17 @@ namespace WebsocketService.Services
                                 Message = "¡Nuevo comentario agregado!"
                             });
 
-                        // También notificar al dueño de la imagen si está conectado
-                        // (Aquí necesitarías lógica para obtener el dueño de la imagen)
+                        // Notificar a través del CommentHub (usuarios suscritos a comentarios de esa imagen)
+                        await _commentHub.Clients.Group($"image_{commentEvent.ImageId}")
+                            .SendAsync("NewComment", new
+                            {
+                                CommentId = commentEvent.CommentId,
+                                ImageId = commentEvent.ImageId,
+                                UserId = commentEvent.UserId,
+                                Content = commentEvent.Content,
+                                CreatedAt = commentEvent.CreatedAt,
+                                Timestamp = DateTime.UtcNow
+                            });
                     }
 
                     await _channel.BasicAckAsync(deliveryTag: ea.DeliveryTag, multiple: false);
